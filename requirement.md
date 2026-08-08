@@ -1,34 +1,24 @@
 Implemented requirements and notes
 
-- **Float list:** reworked into a reusable floating menu injected by the content script.
-- **Save on click:** clicking a list item saves the current page as a Chrome bookmark under the Bookmarks Bar → `FloatBookmark` → `<button title>`.
-- **Background worker:** bookmark creation is performed in `background.js` using the `bookmarks` permission; the worker searches for the Bookmarks Bar folder and falls back to a top-level folder.
-- **All sites:** content script injects on all pages via `content_scripts` matching `"<all_urls>"` in `manifest.json`.
-- **Menu config:** list items are now loaded from `menu_items.json` (editable JSON). The content script fetches this file (with a fallback list) and `menu_items.json` is exposed via `web_accessible_resources`.
-- **Draggable:** header lets you drag the entire box; position is saved.
-- **Position saving (relative):** position is stored as distance from window right (`floatBookmarkRight`) and top (`floatBookmarkTop`) and restored relative to the top-right corner.
-- **Restore on viewport change:** the script listens for `resize` / `orientationchange` / `visualViewport.resize` and re-applies/clamps the saved top/right to keep the box visible.
-- **Resizable:** the box is resizable (CSS `resize: both`); the internal menu flexes to fill the container so more items are visible when taller.
-- **Initial size:** current code sets initial height to `800px` (changeable in `content.js`).
-- **Button sizing:** each button's `min-height` is set dynamically to `(font-size + 2px)` so text fits; labels wrap when necessary.
-- **Collapse header:** clicking the header collapses/expands the entire box (saves/restores height), not just the scroll area.
-- **Scroll behavior:** when the box is resized, a `ResizeObserver` scrolls the list to top.
+- **Right sidebar:** the menu is displayed as a fixed right-hand sidebar instead of a floating panel.
+- **Save on click:** clicking a list item saves the current page as a bookmark under Bookmarks Bar → `FloatBookmark` → `<button title>`.
+- **Save dropped links:** dragging a link and dropping it onto a button also saves that link into the corresponding bookmark folder.
+- **Resizable sidebar:** users can resize the sidebar by dragging the right edge; the adjusted width is remembered across reloads.
+- **Page content shift:** the page content is pushed left when the sidebar appears so the menu does not block the original content area.
+- **Background worker:** bookmark creation is performed in `background.js` using the `bookmarks` permission; it finds or creates the `FloatBookmark` root folder and folder-specific subfolders.
+- **All sites:** content script injects on all pages through `content_scripts` with `"<all_urls>"`.
+- **Menu config:** items are loaded from `menu_items.json`; the extension exposes that file as a `web_accessible_resource` and uses a fallback list if needed.
+- **Collapse header:** clicking the header toggles collapse/expand for the sidebar.
+- **Scroll handling:** wheel scrolling inside the sidebar stays contained within the menu and does not scroll the underlying page.
+- **Persistent state:** sidebar width and position are preserved using `localStorage`.
 
 Files changed
-- `d/ myExtensions/FloatBookmark/content.js` — float UI, drag/resize, position save/restore, collapse, load `menu_items.json`, scroll-on-resize.
-- `d/ myExtensions/FloatBookmark/background.js` — bookmark bar lookup/creation and bookmark creation.
-- `d/ myExtensions/FloatBookmark/manifest.json` — added `bookmarks` permission, `web_accessible_resources` for `menu_items.json`, and background service worker.
-- `d/ myExtensions/FloatBookmark/menu_items.json` — editable menu configuration file.
+- `content.js` — sidebar UI, drag/resize handling, drop-to-bookmark support, page spacing, persistent state, menu item loading.
+- `background.js` — bookmark folder lookup/creation and bookmark creation.
+- `manifest.json` — added `bookmarks` permission, `web_accessible_resources`, and background service worker settings.
+- `menu_items.json` — editable menu configuration file.
 
 Notes / next steps
-- Test in Chrome: load unpacked extension (see `manifest.json`), open a page, resize/drag the list, click an item to confirm bookmark created under Bookmarks Bar → `FloatBookmark` → subfolder.
-- If you prefer a different initial height (e.g., 300px) change the `box.style.height` value in `content.js`.
-- I can add a small options UI to edit `menu_items.json` from the popup or store items in `chrome.storage` for runtime edits.
-Files changed
-- `d/ myExtensions/FloatBookmark/content.js` — float UI, drag/resize, position save/restore, collapse, scroll-on-resize.
-- `d/ myExtensions/FloatBookmark/background.js` — bookmark folder lookup/creation and bookmark creation.
-- `d/ myExtensions/FloatBookmark/manifest.json` — added `bookmarks` permission and background service worker, `content_scripts` set to `<all_urls>`.
-
-Notes / next steps
-- Test in Chrome: load unpacked extension (see `manifest.json`), open a page, resize/drag the list, click an item to confirm bookmark created under Bookmarks Bar → `FloatBookmark` → subfolder.
-- If you want configurable initial size, folder root, or styles, I can add options UI or use `chrome.storage` to persist settings.
+- Test in Chrome by loading the unpacked extension and verifying click and drag/drop bookmark behavior.
+- Verify the sidebar stays on the right, resizes with the handle, and moves page content instead of overlapping it.
+- If you want, I can also add visible resize handle styling and a settings UI for menu item management.

@@ -21,6 +21,43 @@ async function loadMenuItems() {
     }
 }
 
+function parseDroppedLink(event) {
+    const dt = event.dataTransfer;
+    if (!dt) return null;
+
+    const uriList = dt.getData('text/uri-list');
+    if (uriList) {
+        const url = uriList.split('\n')[0].trim();
+        if (url) {
+            const title = dt.getData('text/plain') || url;
+            return { url, title };
+        }
+    }
+
+    const html = dt.getData('text/html');
+    if (html) {
+        const hrefMatch = html.match(/href="([^"]+)"/i);
+        if (hrefMatch && hrefMatch[1]) {
+            const url = hrefMatch[1];
+            const titleMatch = html.match(/>([^<]+)</);
+            const title = titleMatch ? titleMatch[1].trim() : url;
+            return { url, title };
+        }
+    }
+
+    const plainText = dt.getData('text/plain');
+    if (plainText) {
+        const trimmed = plainText.trim();
+        try {
+            new URL(trimmed);
+            return { url: trimmed, title: trimmed };
+        } catch (_e) {
+        }
+    }
+
+    return null;
+}
+
 function savePageSpacing() {
     if (window.__floatBookmarkPageSpacingSaved) return;
     window.__floatBookmarkPageSpacingSaved = {
@@ -75,19 +112,35 @@ function saveSidebarWidth(width) {
     localStorage.setItem("floatBookmarkSidebarWidth", String(width));
 }
 
+function getSavedSidebarTop() {
+    const top = Number(localStorage.getItem("floatBookmarkSidebarTop"));
+    if (Number.isFinite(top) && top >= 0) {
+        return top;
+    }
+    return 0;
+}
+
+function saveSidebarTop(top) {
+    localStorage.setItem("floatBookmarkSidebarTop", String(top));
+}
+
 async function createSidebarMenu() {
     if (document.getElementById(MENU_ID)) return;
     const MENU_ITEMS = await loadMenuItems();
 
     const savedWidth = getSavedSidebarWidth();
+    const savedTop = Math.max(70, getSavedSidebarTop());
     const box = document.createElement("div");
     box.id = MENU_ID;
     box.style.position = "fixed";
-    box.style.top = "0";
+    box.style.top = `${savedTop}px`;
+    box.style.bottom = "0";
     box.style.right = "0";
     box.style.width = `${savedWidth}px`;
-    box.style.height = "100vh";
     box.style.minWidth = `${SIDEBAR_MIN_WIDTH}px`;
+    const initialHeight = Math.max(0, window.innerHeight - savedTop);
+    box.style.height = `${initialHeight}px`;
+    box.style.maxHeight = `${initialHeight}px`;
     box.style.boxSizing = "border-box";
     box.style.overscrollBehavior = "contain";
     box.style.background = "#222";
@@ -145,6 +198,28 @@ async function createSidebarMenu() {
         button.addEventListener("mouseleave", () => {
             if (!button.classList.contains("selected")) button.style.background = "transparent";
         });
+        button.addEventListener("dragover", e => {
+            e.preventDefault();
+        });
+        button.addEventListener("drop", e => {
+            e.preventDefault();
+            e.stopPropagation();
+            const dropped = parseDroppedLink(e);
+            if (!dropped || !dropped.url) return;
+
+            chrome.runtime.sendMessage(
+                { action: "addBookmark", folderName: title, url: dropped.url, title: dropped.title || dropped.url },
+                response => {
+                    if (response && response.success) {
+                        button.classList.add("selected");
+                        button.style.background = "#0b5ed7";
+                    } else {
+                        const message = response && response.error ? response.error : "Failed to add bookmark.";
+                        alert(message);
+                    }
+                }
+            );
+        });
 
         button.addEventListener("click", () => {
             const folderName = title;
@@ -185,6 +260,82 @@ async function createSidebarMenu() {
     applyPageSpacing(savedWidth);
 
     let isResizing = false;
+    let isDraggingTitle = false;
+    let dragStartY = 0;
+    let dragStartTop = 0;
+    let dragMoved = false;
+
+    function clampSidebarTop(value) {
+        const availableHeight = window.innerHeight;
+        const height = box.getBoundingClientRect().height;
+        const maxTop = Math.max(0, availableHeight - height);
+        return Math.min(Math.max(0, value), maxTop);
+    }
+
+    function updateSidebarTop(value) {
+        const top = clampSidebarTop(value);
+        box.style.top = `${top}px`;
+        saveSidebarTop(top);
+        const availableHeight = Math.max(0, window.innerHeight - top);
+        box.style.maxHeight = `${availableHeight}px`;
+        if (box.dataset.collapsed !== "1") {
+            box.style.bottom = "0";
+            box.style.height = "auto";
+        }
+        if (box.getBoundingClientRect().height > availableHeight) {
+            box.style.height = `${availableHeight}px`;
+        }
+    }
+
+    function dragSidebarHeader(e) {
+        if (!isDraggingTitle) return;
+        const deltaY = e.clientY - dragStartY;
+        if (Math.abs(deltaY) > 2) {
+            dragMoved = true;
+        }
+        updateSidebarTop(dragStartTop + deltaY);
+    }
+
+    header.addEventListener("mousedown", event => {
+        event.preventDefault();
+        isDraggingTitle = true;
+        dragMoved = false;
+        dragStartY = event.clientY;
+        dragStartTop = box.getBoundingClientRect().top;
+        document.body.style.userSelect = "none";
+        document.body.style.cursor = "ns-resize";
+        window.addEventListener("mousemove", dragSidebarHeader);
+        window.addEventListener("mouseup", () => {
+            isDraggingTitle = false;
+            document.body.style.userSelect = "";
+            document.body.style.cursor = "";
+            window.removeEventListener("mousemove", dragSidebarHeader);
+        }, { once: true });
+    });
+
+    header.addEventListener("click", event => {
+        if (dragMoved) {
+            dragMoved = false;
+            event.stopPropagation();
+            event.preventDefault();
+            return;
+        }
+
+        const isCollapsed = box.dataset.collapsed === "1";
+        if (isCollapsed) {
+            const saved = box.dataset.savedHeight;
+            if (saved) box.style.height = saved;
+            box.style.bottom = "0";
+            menu.style.display = "flex";
+            box.dataset.collapsed = "0";
+        } else {
+            box.dataset.savedHeight = box.style.height || (box.getBoundingClientRect().height + "px");
+            box.style.bottom = "";
+            box.style.height = `${header.getBoundingClientRect().height}px`;
+            menu.style.display = "none";
+            box.dataset.collapsed = "1";
+        }
+    });
 
     function resizePanel(e) {
         if (!isResizing) return;
@@ -192,6 +343,13 @@ async function createSidebarMenu() {
         box.style.width = `${newWidth}px`;
         applyPageSpacing(newWidth);
         document.documentElement.style.setProperty('--yt-content-margin', `${newWidth}px`);
+        const top = parseFloat(box.style.top) || 0;
+        const availableHeight = Math.max(0, window.innerHeight - top);
+        box.style.maxHeight = `${availableHeight}px`;
+        if (box.dataset.collapsed !== "1") {
+            box.style.height = "auto";
+            box.style.bottom = "0";
+        }
     }
 
     function stopResize() {
@@ -230,20 +388,19 @@ async function createSidebarMenu() {
     menu.addEventListener("wheel", wheelHandler, { passive: false });
     box.addEventListener("wheel", wheelHandler, { passive: false });
 
-    header.addEventListener("click", () => {
-        const isCollapsed = box.dataset.collapsed === "1";
-        if (isCollapsed) {
-            const saved = box.dataset.savedHeight;
-            if (saved) box.style.height = saved;
-            menu.style.display = "flex";
-            box.dataset.collapsed = "0";
+    function adjustSidebarOnWindowResize() {
+        const top = parseFloat(box.style.top) || 0;
+        const availableHeight = Math.max(0, window.innerHeight - top);
+        box.style.maxHeight = `${availableHeight}px`;
+        if (box.dataset.collapsed !== "1") {
+            box.style.height = "auto";
+            box.style.bottom = "0";
         } else {
-            box.dataset.savedHeight = box.style.height || (box.getBoundingClientRect().height + "px");
-            box.style.height = header.getBoundingClientRect().height + "px";
-            menu.style.display = "none";
-            box.dataset.collapsed = "1";
+            box.style.height = `${header.getBoundingClientRect().height}px`;
         }
-    });
+    }
+
+    window.addEventListener("resize", adjustSidebarOnWindowResize);
 
     // Scroll menu to top whenever the container is resized
     if (window.ResizeObserver) {
