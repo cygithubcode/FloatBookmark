@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Float Bookmark",
+  "name": "Side Float Bookmark",
   "version": "1.0",
   "description": "Floating button to add the bookmark",
   "permissions": ["activeTab", "scripting", "bookmarks"],

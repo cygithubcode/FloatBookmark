@@ -1,5 +1,8 @@
 ﻿const MENU_ID = "float-bookmark-menu";
 const HEADER_ID = "float-bookmark-header";
+const SIDEBAR_MIN_WIDTH = 100;
+const SIDEBAR_MAX_WIDTH = 500;
+const SIDEBAR_DEFAULT_WIDTH = 260;
 
 const MENU_FALLBACK = [
     "trd","lauph","drive","mind ways thoughts","ToCheck","Music","Living","food","kalaok","Coding","羽毛球","archery","AI","AI","Stats","Tape reading","learn stat trd","心理","房子","realestate","train","tv","jobs","music","car","doc","exercise","Volleyball","travel","Korean","Soccer","Business","ohters","Health","Basketball","Financial"
@@ -18,39 +21,87 @@ async function loadMenuItems() {
     }
 }
 
-async function createFloatingMenu() {
+function savePageSpacing() {
+    if (window.__floatBookmarkPageSpacingSaved) return;
+    window.__floatBookmarkPageSpacingSaved = {
+        htmlMarginRight: document.documentElement.style.marginRight || "",
+        htmlPaddingRight: document.documentElement.style.paddingRight || "",
+        htmlOverflowX: document.documentElement.style.overflowX || "",
+        htmlMaxWidth: document.documentElement.style.maxWidth || "",
+        bodyMarginRight: document.body.style.marginRight || "",
+        bodyPaddingRight: document.body.style.paddingRight || "",
+        bodyOverflowX: document.body.style.overflowX || "",
+        bodyMaxWidth: document.body.style.maxWidth || ""
+    };
+}
+
+function applyPageSpacing(width) {
+    savePageSpacing();
+    document.documentElement.style.boxSizing = "border-box";
+    document.documentElement.style.marginRight = `${width}px`;
+    document.documentElement.style.paddingRight = "0";
+    document.documentElement.style.overflowX = "hidden";
+    document.documentElement.style.overscrollBehaviorX = "none";
+    document.documentElement.style.setProperty('--yt-content-margin', `${width}px`);
+    document.body.style.boxSizing = "border-box";
+    document.body.style.marginRight = `${width}px`;
+    document.body.style.paddingRight = "0";
+    document.body.style.overflowX = "hidden";
+    document.body.style.overscrollBehaviorX = "none";
+}
+
+function restorePageSpacing() {
+    const saved = window.__floatBookmarkPageSpacingSaved;
+    if (!saved) return;
+    document.documentElement.style.marginRight = saved.htmlMarginRight;
+    document.documentElement.style.paddingRight = saved.htmlPaddingRight || "";
+    document.documentElement.style.overflowX = saved.htmlOverflowX || "";
+    document.documentElement.style.maxWidth = saved.htmlMaxWidth || "";
+    document.body.style.marginRight = saved.bodyMarginRight;
+    document.body.style.paddingRight = saved.bodyPaddingRight || "";
+    document.body.style.overflowX = saved.bodyOverflowX || "";
+    document.body.style.maxWidth = saved.bodyMaxWidth || "";
+}
+
+function getSavedSidebarWidth() {
+    const width = Number(localStorage.getItem("floatBookmarkSidebarWidth"));
+    if (Number.isFinite(width) && width >= SIDEBAR_MIN_WIDTH && width <= SIDEBAR_MAX_WIDTH) {
+        return width;
+    }
+    return SIDEBAR_DEFAULT_WIDTH;
+}
+
+function saveSidebarWidth(width) {
+    localStorage.setItem("floatBookmarkSidebarWidth", String(width));
+}
+
+async function createSidebarMenu() {
     if (document.getElementById(MENU_ID)) return;
     const MENU_ITEMS = await loadMenuItems();
 
+    const savedWidth = getSavedSidebarWidth();
     const box = document.createElement("div");
     box.id = MENU_ID;
     box.style.position = "fixed";
-    box.style.top = "150px";
-    box.style.right = "20px";
-    box.style.width = "150px";
-    box.style.height = "800px";
-    box.style.minWidth = "130px";
-    box.style.minHeight = "10px";
+    box.style.top = "0";
+    box.style.right = "0";
+    box.style.width = `${savedWidth}px`;
+    box.style.height = "100vh";
+    box.style.minWidth = `${SIDEBAR_MIN_WIDTH}px`;
+    box.style.boxSizing = "border-box";
+    box.style.overscrollBehavior = "contain";
     box.style.background = "#222";
     box.style.color = "white";
     box.style.zIndex = 9999999;
-    box.style.borderRadius = "8px";
-    box.style.boxShadow = "0 0 12px rgba(0,0,0,0.35)";
-    box.style.cursor = "move";
+    box.style.borderLeft = "1px solid #444";
+    box.style.boxShadow = "-4px 0 16px rgba(0,0,0,0.35)";
+    box.style.cursor = "default";
     box.style.userSelect = "none";
-    box.style.resize = "both";
+    box.style.resize = "none";
     box.style.display = "flex";
     box.style.flexDirection = "column";
     box.style.overflow = "hidden";
     box.style.fontFamily = "Arial, sans-serif";
-
-    const savedRight = localStorage.getItem("floatBookmarkRight");
-    const savedTop = localStorage.getItem("floatBookmarkTop");
-    if (savedRight !== null && savedTop !== null) {
-        box.style.right = Math.max(0, parseFloat(savedRight)) + "px";
-        box.style.top = Math.max(0, parseFloat(savedTop)) + "px";
-        box.style.left = "auto";
-    }
 
     const header = document.createElement("div");
     header.id = HEADER_ID;
@@ -60,7 +111,7 @@ async function createFloatingMenu() {
     header.style.cursor = "pointer";
     header.style.fontWeight = "700";
     header.style.fontSize = "14px";
-    header.innerText = "Float";
+    header.innerText = "Bookmarks";
     box.appendChild(header);
 
     const menu = document.createElement("div");
@@ -69,6 +120,9 @@ async function createFloatingMenu() {
     menu.style.flex = "1 1 auto";
     menu.style.minHeight = "0";
     menu.style.overflow = "auto";
+    menu.style.boxSizing = "border-box";
+    menu.style.overscrollBehavior = "contain";
+    menu.style.paddingRight = "8px";
 
     MENU_ITEMS.forEach(title => {
         const button = document.createElement("div");
@@ -114,54 +168,73 @@ async function createFloatingMenu() {
         menu.appendChild(button);
     });
 
+    const resizeHandle = document.createElement("div");
+    resizeHandle.id = "resize-handle";
+    resizeHandle.style.position = "absolute";
+    resizeHandle.style.left = "0";
+    resizeHandle.style.top = "0";
+    resizeHandle.style.bottom = "0";
+    resizeHandle.style.width = "8px";
+    resizeHandle.style.cursor = "ew-resize";
+    resizeHandle.style.background = "transparent";
+    resizeHandle.style.zIndex = "10000000";
+    box.appendChild(resizeHandle);
+
     box.appendChild(menu);
     document.body.appendChild(box);
+    applyPageSpacing(savedWidth);
 
-    let isDragging = false;
-    let offsetX = 0;
-    let offsetY = 0;
-    let dragMoved = false;
+    let isResizing = false;
 
-    header.addEventListener("mousedown", event => {
-        isDragging = true;
-        dragMoved = false;
-        offsetX = event.clientX - box.getBoundingClientRect().left;
-        offsetY = event.clientY - box.getBoundingClientRect().top;
-        document.body.style.userSelect = "none";
+    function resizePanel(e) {
+        if (!isResizing) return;
+        const newWidth = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, window.innerWidth - e.clientX));
+        box.style.width = `${newWidth}px`;
+        applyPageSpacing(newWidth);
+        document.documentElement.style.setProperty('--yt-content-margin', `${newWidth}px`);
+    }
+
+    function stopResize() {
+        isResizing = false;
+        document.body.style.cursor = "";
+        saveSidebarWidth(box.getBoundingClientRect().width);
+        document.removeEventListener("mousemove", resizePanel);
+        document.removeEventListener("mouseup", stopResize);
+    }
+
+    resizeHandle.addEventListener("mousedown", event => {
+        event.preventDefault();
+        isResizing = true;
+        document.body.style.cursor = "ew-resize";
+        document.addEventListener("mousemove", resizePanel);
+        document.addEventListener("mouseup", stopResize);
     });
 
-    document.addEventListener("mousemove", event => {
-        if (!isDragging) return;
+    const wheelHandler = event => {
+        const deltaY = event.deltaY;
+        const scrollTop = menu.scrollTop;
+        const scrollHeight = menu.scrollHeight;
+        const clientHeight = menu.clientHeight;
+        const atTop = scrollTop === 0;
+        const atBottom = scrollTop + clientHeight >= scrollHeight - 1;
 
-        const newLeft = event.clientX - offsetX;
-        const newTop = event.clientY - offsetY;
-
-        if (Math.abs(newLeft - box.getBoundingClientRect().left) > 2 || Math.abs(newTop - box.getBoundingClientRect().top) > 2) {
-            dragMoved = true;
+        if ((deltaY < 0 && !atTop) || (deltaY > 0 && !atBottom)) {
+            event.stopPropagation();
+            return;
         }
 
-        box.style.left = Math.max(0, newLeft) + "px";
-        box.style.top = Math.max(0, newTop) + "px";
-        box.style.right = "auto";
-    });
+        event.preventDefault();
+        event.stopPropagation();
+    };
 
-    document.addEventListener("mouseup", () => {
-        if (isDragging) {
-            const rect = box.getBoundingClientRect();
-            const offsetRight = Math.max(0, Math.round(window.innerWidth - rect.right));
-            localStorage.setItem("floatBookmarkRight", offsetRight);
-            localStorage.setItem("floatBookmarkTop", Math.max(0, Math.round(rect.top)));
-        }
-        isDragging = false;
-        document.body.style.userSelect = "";
-    });
+    menu.addEventListener("wheel", wheelHandler, { passive: false });
+    box.addEventListener("wheel", wheelHandler, { passive: false });
 
-    header.addEventListener("click", event => {
-        if (dragMoved) return;
+    header.addEventListener("click", () => {
         const isCollapsed = box.dataset.collapsed === "1";
         if (isCollapsed) {
             const saved = box.dataset.savedHeight;
-            if (saved) box.style.height = saved; else box.style.height = "300px";
+            if (saved) box.style.height = saved;
             menu.style.display = "flex";
             box.dataset.collapsed = "0";
         } else {
@@ -180,42 +253,12 @@ async function createFloatingMenu() {
         ro.observe(box);
     }
 
-    // Adjust position when window or viewport size changes so top/right remain valid
-    function adjustPosition() {
-        const savedRight = localStorage.getItem("floatBookmarkRight");
-        const savedTop = localStorage.getItem("floatBookmarkTop");
-        if (savedRight !== null) {
-            box.style.right = Math.max(0, parseFloat(savedRight)) + "px";
-            box.style.left = "auto";
-        }
-
-        if (savedTop !== null) {
-            // clamp top so the box stays in viewport
-            const rect = box.getBoundingClientRect();
-            const desiredTop = Math.max(0, Math.min(parseFloat(savedTop), window.innerHeight - rect.height - 8));
-            box.style.top = desiredTop + "px";
-        } else {
-            const rect = box.getBoundingClientRect();
-            if (rect.top + rect.height > window.innerHeight) {
-                box.style.top = Math.max(8, window.innerHeight - rect.height - 8) + "px";
-            }
-        }
-    }
-
-    window.addEventListener("resize", adjustPosition);
-    window.addEventListener("orientationchange", adjustPosition);
-    if (window.visualViewport) {
-        window.visualViewport.addEventListener("resize", adjustPosition);
-    }
-
-    // Ensure position is valid on create
-    adjustPosition();
 }
 
 if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", createFloatingMenu);
+    document.addEventListener("DOMContentLoaded", createSidebarMenu);
 } else {
-    createFloatingMenu();
+    createSidebarMenu();
 }
 
 
