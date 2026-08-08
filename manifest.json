@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Float Bookmark",
+  "version": "1.0",
+  "description": "Floating button to add the bookmark",
+  "permissions": ["activeTab", "scripting", "bookmarks"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["menu_items.json"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ]
+}
