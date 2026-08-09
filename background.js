@@ -1,6 +1,17 @@
 const ROOT_FOLDER_TITLE = "FloatBookmark";
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === "getBookmarkFoldersForUrl") {
+        getBookmarkFoldersForUrl(message.url)
+            .then(folderNames => sendResponse({ success: true, folderNames }))
+            .catch(error => {
+                console.error("Bookmark lookup error:", error);
+                sendResponse({ success: false, error: error.message || String(error) });
+            });
+
+        return true;
+    }
+
     if (message.action !== "addBookmark") return;
 
     const folderName = message.folderName || "default";
@@ -22,6 +33,41 @@ function ensureBookmarkFolder(subfolderName) {
     return getBookmarksRoot()
         .then(rootId => getOrCreateFolder(rootId, ROOT_FOLDER_TITLE))
         .then(rootFolderId => getOrCreateFolder(rootFolderId, subfolderName));
+}
+
+function getBookmarkFoldersForUrl(url) {
+    if (!url) return Promise.resolve([]);
+
+    return getBookmarksRoot()
+        .then(rootId => findExistingFolder(rootId, ROOT_FOLDER_TITLE))
+        .then(rootFolder => {
+            if (!rootFolder) return [];
+
+            return new Promise((resolve, reject) => {
+                chrome.bookmarks.getChildren(rootFolder.id, folders => {
+                    if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+
+                    const matches = [];
+                    let pending = 0;
+                    const finish = () => {
+                        if (--pending === 0) resolve(matches);
+                    };
+
+                    (folders || []).forEach(folder => {
+                        if (folder.url !== undefined) return;
+                        pending++;
+                        chrome.bookmarks.getChildren(folder.id, bookmarks => {
+                            if (!chrome.runtime.lastError && (bookmarks || []).some(bookmark => bookmark.url === url)) {
+                                matches.push(folder.title);
+                            }
+                            finish();
+                        });
+                    });
+
+                    if (pending === 0) resolve(matches);
+                });
+            });
+        });
 }
 
 function getBookmarksRoot() {
@@ -74,6 +120,15 @@ function getOrCreateFolder(parentId, title) {
                 }
                 resolve(node.id);
             });
+        });
+    });
+}
+
+function findExistingFolder(parentId, title) {
+    return new Promise((resolve, reject) => {
+        chrome.bookmarks.getChildren(parentId, nodes => {
+            if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+            resolve((nodes || []).find(node => node.title === title && node.url === undefined) || null);
         });
     });
 }

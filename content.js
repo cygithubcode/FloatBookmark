@@ -3,6 +3,7 @@ const HEADER_ID = "float-bookmark-header";
 const SIDEBAR_MIN_WIDTH = 100;
 const SIDEBAR_MAX_WIDTH = 500;
 const SIDEBAR_DEFAULT_WIDTH = 260;
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "floatBookmarkSidebarCollapsed";
 
 const MENU_FALLBACK = [
     "trd","lauph","drive","mind ways thoughts","ToCheck","Music","Living","food","kalaok","Coding","羽毛球","archery","AI","AI","Stats","Tape reading","learn stat trd","心理","房子","realestate","train","tv","jobs","music","car","doc","exercise","Volleyball","travel","Korean","Soccer","Business","ohters","Health","Basketball","Financial"
@@ -124,6 +125,14 @@ function saveSidebarTop(top) {
     localStorage.setItem("floatBookmarkSidebarTop", String(top));
 }
 
+function getSavedSidebarCollapsed() {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "1";
+}
+
+function saveSidebarCollapsed(isCollapsed) {
+    localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, isCollapsed ? "1" : "0");
+}
+
 async function createSidebarMenu() {
     if (document.getElementById(MENU_ID)) return;
     const MENU_ITEMS = await loadMenuItems();
@@ -177,6 +186,41 @@ async function createSidebarMenu() {
     menu.style.overscrollBehavior = "contain";
     menu.style.paddingRight = "8px";
 
+    const buttonsByFolder = new Map();
+    const newlyAddedFolders = new Set();
+    let displayedUrl = window.location.href;
+
+    function showButtonAsBookmarked(button, isNewBookmark) {
+        button.classList.add("selected");
+        button.style.background = isNewBookmark ? "#0b5ed7" : "#64b5f6";
+    }
+
+    function refreshBookmarkColors() {
+        const url = window.location.href;
+        if (url !== displayedUrl) {
+            displayedUrl = url;
+            newlyAddedFolders.clear();
+        }
+
+        chrome.runtime.sendMessage(
+            { action: "getBookmarkFoldersForUrl", url },
+            response => {
+                // Ignore a result for a page that has since changed.
+                if (url !== window.location.href || !response || !response.success || !Array.isArray(response.folderNames)) return;
+
+                buttonsByFolder.forEach(button => {
+                    button.classList.remove("selected");
+                    button.style.background = "transparent";
+                });
+
+                response.folderNames.forEach(folderName => {
+                    const button = buttonsByFolder.get(folderName);
+                    if (button) showButtonAsBookmarked(button, newlyAddedFolders.has(folderName));
+                });
+            }
+        );
+    }
+
     MENU_ITEMS.forEach(title => {
         const button = document.createElement("div");
         button.innerText = title;
@@ -191,6 +235,7 @@ async function createSidebarMenu() {
         button.style.overflow = "visible";
         const fs = parseFloat(window.getComputedStyle(button).fontSize) || 14;
         button.style.minHeight = (fs + 2) + "px";
+        buttonsByFolder.set(title, button);
 
         button.addEventListener("mouseenter", () => {
             if (!button.classList.contains("selected")) button.style.background = "#333";
@@ -211,8 +256,10 @@ async function createSidebarMenu() {
                 { action: "addBookmark", folderName: title, url: dropped.url, title: dropped.title || dropped.url },
                 response => {
                     if (response && response.success) {
-                        button.classList.add("selected");
-                        button.style.background = "#0b5ed7";
+                        if (dropped.url === window.location.href) {
+                            newlyAddedFolders.add(title);
+                            showButtonAsBookmarked(button, true);
+                        }
                     } else {
                         const message = response && response.error ? response.error : "Failed to add bookmark.";
                         alert(message);
@@ -230,8 +277,10 @@ async function createSidebarMenu() {
                 { action: "addBookmark", folderName, url, title: pageTitle },
                 response => {
                     if (response && response.success) {
-                        button.classList.add("selected");
-                        button.style.background = "#0b5ed7";
+                        if (url === window.location.href) {
+                            newlyAddedFolders.add(folderName);
+                            showButtonAsBookmarked(button, true);
+                        }
                     } else {
                         const message = response && response.error ? response.error : "Failed to add bookmark.";
                         alert(message);
@@ -242,6 +291,29 @@ async function createSidebarMenu() {
 
         menu.appendChild(button);
     });
+
+    refreshBookmarkColors();
+
+    const URL_CHANGE_EVENT = "floatBookmarkUrlChange";
+    if (!window.__floatBookmarkUrlChangeListenerInstalled) {
+        window.__floatBookmarkUrlChangeListenerInstalled = true;
+        ["pushState", "replaceState"].forEach(method => {
+            const original = history[method];
+            history[method] = function (...args) {
+                const result = original.apply(this, args);
+                window.dispatchEvent(new Event(URL_CHANGE_EVENT));
+                return result;
+            };
+        });
+        window.addEventListener("popstate", () => window.dispatchEvent(new Event(URL_CHANGE_EVENT)));
+        window.addEventListener("hashchange", () => window.dispatchEvent(new Event(URL_CHANGE_EVENT)));
+    }
+    window.addEventListener(URL_CHANGE_EVENT, refreshBookmarkColors);
+    // Some sites change routes from their page script, which content scripts cannot
+    // always observe through a patched History API. Keep the highlight in sync there too.
+    window.setInterval(() => {
+        if (window.location.href !== displayedUrl) refreshBookmarkColors();
+    }, 500);
 
     const resizeHandle = document.createElement("div");
     resizeHandle.id = "resize-handle";
@@ -258,6 +330,28 @@ async function createSidebarMenu() {
     box.appendChild(menu);
     document.body.appendChild(box);
     applyPageSpacing(savedWidth);
+
+    function setSidebarCollapsed(isCollapsed, savePreference = true) {
+        if (isCollapsed) {
+            if (box.dataset.collapsed !== "1") {
+                box.dataset.savedHeight = box.style.height || (box.getBoundingClientRect().height + "px");
+            }
+            box.style.bottom = "";
+            box.style.height = `${header.getBoundingClientRect().height}px`;
+            menu.style.display = "none";
+            box.dataset.collapsed = "1";
+        } else {
+            const saved = box.dataset.savedHeight;
+            if (saved) box.style.height = saved;
+            box.style.bottom = "0";
+            menu.style.display = "flex";
+            box.dataset.collapsed = "0";
+        }
+
+        if (savePreference) saveSidebarCollapsed(isCollapsed);
+    }
+
+    setSidebarCollapsed(getSavedSidebarCollapsed(), false);
 
     let isResizing = false;
     let isDraggingTitle = false;
@@ -321,20 +415,7 @@ async function createSidebarMenu() {
             return;
         }
 
-        const isCollapsed = box.dataset.collapsed === "1";
-        if (isCollapsed) {
-            const saved = box.dataset.savedHeight;
-            if (saved) box.style.height = saved;
-            box.style.bottom = "0";
-            menu.style.display = "flex";
-            box.dataset.collapsed = "0";
-        } else {
-            box.dataset.savedHeight = box.style.height || (box.getBoundingClientRect().height + "px");
-            box.style.bottom = "";
-            box.style.height = `${header.getBoundingClientRect().height}px`;
-            menu.style.display = "none";
-            box.dataset.collapsed = "1";
-        }
+        setSidebarCollapsed(box.dataset.collapsed !== "1");
     });
 
     function resizePanel(e) {
@@ -417,5 +498,3 @@ if (document.readyState === "loading") {
 } else {
     createSidebarMenu();
 }
-
-
