@@ -10,12 +10,14 @@
   "web_accessible_resources": [
     {
       "resources": ["menu_items.json"],
+      "exclude_matches": ["*://remotedesktop.google.com/*", "*://*.remotedesktop.google.com/*"],
       "matches": ["<all_urls>"]
     }
   ],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
+      "exclude_matches": ["*://remotedesktop.google.com/*", "*://*.remotedesktop.google.com/*"],
       "js": ["content.js"],
       "css": ["styles.css"]
     }
